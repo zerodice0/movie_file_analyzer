@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Gemini 전용 전환 및 YouTube 다운로드 기능 추가\n\n- Claude CLI 제거, Gemini CLI 전용으로 변경\n- YouTube URL 다운로드 기능 추가 \\(yt-dlp 활용\\)\n- 의존성 관리 메뉴 추가 \\(ffmpeg, gemini-cli, yt-dlp\\)\n- Gemini 모델 선택 기능 \\(auto, 2.5-pro, 2.5-flash, 2.0-flash\\)\n- AI 분석 경과 시간 표시 기능 추가\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}

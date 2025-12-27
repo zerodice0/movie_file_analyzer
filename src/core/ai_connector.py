@@ -1,4 +1,4 @@
-"""AI CLI 도구 연동 모듈 (Claude Code, Gemini CLI)."""
+"""AI CLI 도구 연동 모듈 (Gemini CLI 전용)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+# Gemini 지원 모델 목록 (2025년 12월 기준)
+# Note: gemini-3-*-preview 모델은 CLI 0.21.1+ 및 Preview 설정 활성화 필요
+GEMINI_MODELS = {
+    "auto": "자동 (기본값)",
+    "gemini-2.5-pro": "Gemini 2.5 Pro (안정, 권장)",
+    "gemini-2.5-flash": "Gemini 2.5 Flash (빠름)",
+    "gemini-2.0-flash": "Gemini 2.0 Flash (경량)",
+}
 
 
 @dataclass
@@ -20,6 +30,7 @@ class AnalysisResult:
     frame_count: int
     success: bool
     error_message: Optional[str] = None
+    model_used: Optional[str] = None
 
 
 class AIConnector(ABC):
@@ -210,41 +221,24 @@ class AIConnector(ABC):
             )
 
 
-class ClaudeConnector(AIConnector):
-    """Claude Code CLI 연동."""
-
-    def get_command_name(self) -> str:
-        return "claude"
-
-    def get_provider_name(self) -> str:
-        return "Claude"
-
-    def _build_command(
-        self,
-        prompt: str,
-        frame_paths: list[Path],
-    ) -> list[str]:
-        """
-        Claude CLI 명령어를 구성합니다.
-
-        형식: claude -p "프롬프트" image1.jpg image2.jpg ...
-        """
-        cmd = ["claude", "-p", prompt]
-        cmd.extend([str(p) for p in frame_paths])
-        return cmd
-
-
 class GeminiConnector(AIConnector):
     """Gemini CLI 연동."""
 
-    def __init__(self, auto_approve: bool = True, clear_sessions: bool = True):
+    def __init__(
+        self,
+        auto_approve: bool = True,
+        clear_sessions: bool = True,
+        model: str = "auto",
+    ):
         """
         Args:
             auto_approve: 자동 승인 모드 (-y 플래그) 사용 여부
             clear_sessions: 분석 전 기존 세션 삭제 여부
+            model: 사용할 모델 ("auto", "gemini-3-pro", "gemini-2.5-flash" 등)
         """
         self.auto_approve = auto_approve
         self.clear_sessions = clear_sessions
+        self.model = model
 
     def get_command_name(self) -> str:
         return "gemini"
@@ -295,7 +289,7 @@ class GeminiConnector(AIConnector):
             self._clear_all_sessions(working_dir)
 
         # 부모 클래스의 analyze 호출
-        return super().analyze(
+        result = super().analyze(
             frame_paths=frame_paths,
             interval_sec=interval_sec,
             duration_str=duration_str,
@@ -305,6 +299,10 @@ class GeminiConnector(AIConnector):
             working_dir=working_dir,
         )
 
+        # 사용된 모델 정보 추가
+        result.model_used = self.model if self.model != "auto" else "auto"
+        return result
+
     def _build_command(
         self,
         prompt: str,
@@ -313,7 +311,7 @@ class GeminiConnector(AIConnector):
         """
         Gemini CLI 명령어를 구성합니다.
 
-        형식: gemini "프롬프트 @file1.jpg @file2.jpg ..." -y
+        형식: gemini [--model MODEL] "프롬프트 @file1.jpg @file2.jpg ..." -y
 
         Note:
             Gemini CLI는 @ 접두사로 파일을 참조합니다.
@@ -323,29 +321,36 @@ class GeminiConnector(AIConnector):
         file_refs = " ".join([f"@{p}" for p in frame_paths])
         full_prompt = f"{prompt}\n\n파일들: {file_refs}"
 
-        cmd = ["gemini", full_prompt]
+        cmd = ["gemini"]
+
+        # 모델 지정 (auto가 아닌 경우)
+        if self.model and self.model != "auto":
+            cmd.extend(["--model", self.model])
+
+        cmd.append(full_prompt)
 
         if self.auto_approve:
             cmd.append("-y")
 
         return cmd
 
+    @staticmethod
+    def get_available_models() -> dict[str, str]:
+        """사용 가능한 모델 목록 반환."""
+        return GEMINI_MODELS.copy()
+
 
 class AIConnectorFactory:
-    """AI 연결자 팩토리."""
-
-    _connectors: dict[str, type[AIConnector]] = {
-        "claude": ClaudeConnector,
-        "gemini": GeminiConnector,
-    }
+    """AI 연결자 팩토리 (Gemini 전용)."""
 
     @classmethod
-    def create(cls, provider: str, **kwargs) -> AIConnector:
+    def create(cls, provider: str = "gemini", model: str = "auto", **kwargs) -> AIConnector:
         """
         AI 연결자 인스턴스를 생성합니다.
 
         Args:
-            provider: 제공자 이름 ("claude" 또는 "gemini")
+            provider: 제공자 이름 ("gemini"만 지원)
+            model: Gemini 모델 이름
             **kwargs: 추가 인자
 
         Returns:
@@ -354,25 +359,26 @@ class AIConnectorFactory:
         Raises:
             ValueError: 지원하지 않는 제공자
         """
-        provider = provider.lower()
-        if provider not in cls._connectors:
+        if provider.lower() != "gemini":
             raise ValueError(
-                f"지원하지 않는 제공자: {provider}. "
-                f"사용 가능: {list(cls._connectors.keys())}"
+                f"지원하지 않는 제공자: {provider}. 현재 gemini만 지원됩니다."
             )
-        return cls._connectors[provider](**kwargs)
+        return GeminiConnector(model=model, **kwargs)
 
     @classmethod
     def get_available_providers(cls) -> list[str]:
         """설치된 CLI 도구 목록을 반환합니다."""
-        available = []
-        for name, connector_cls in cls._connectors.items():
-            connector = connector_cls()
-            if connector.is_available():
-                available.append(name)
-        return available
+        connector = GeminiConnector()
+        if connector.is_available():
+            return ["gemini"]
+        return []
 
     @classmethod
     def get_all_providers(cls) -> list[str]:
         """모든 지원 제공자 목록을 반환합니다."""
-        return list(cls._connectors.keys())
+        return ["gemini"]
+
+    @classmethod
+    def get_available_models(cls) -> dict[str, str]:
+        """사용 가능한 모델 목록을 반환합니다."""
+        return GeminiConnector.get_available_models()

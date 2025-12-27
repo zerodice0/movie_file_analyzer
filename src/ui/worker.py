@@ -19,6 +19,8 @@ class AnalysisWorker(QThread):
     progress = Signal(int, str)  # 진행률(%), 메시지
     frames_ready = Signal(list)  # 추출된 프레임 경로 목록
     prompt_ready = Signal(str)  # 사용된 프롬프트
+    ai_analysis_started = Signal()  # AI 분석 시작
+    ai_analysis_finished = Signal()  # AI 분석 완료
     finished = Signal(object, object)  # AnalysisResult, VideoInfo
     error = Signal(str)  # 에러 메시지
 
@@ -29,6 +31,7 @@ class AnalysisWorker(QThread):
         strategy: ExtractionStrategy,
         custom_prompt: Optional[str] = None,
         output_language: str = "korean",
+        model: str = "auto",
     ):
         super().__init__()
         self.video_path = video_path
@@ -36,6 +39,7 @@ class AnalysisWorker(QThread):
         self.strategy = strategy
         self.custom_prompt = custom_prompt
         self.output_language = output_language
+        self.model = model
 
         self.frame_extractor = FrameExtractor()
         self.cache_manager = CacheManager()
@@ -65,7 +69,7 @@ class AnalysisWorker(QThread):
 
             # 4. 프롬프트 생성 및 AI 분석
             self.progress.emit(55, "프롬프트 생성 중...")
-            connector = AIConnectorFactory.create(self.provider)
+            connector = AIConnectorFactory.create(self.provider, model=self.model)
             prompt = connector.build_prompt(
                 interval_sec=self.strategy.interval,
                 frame_count=len(frames),
@@ -75,7 +79,13 @@ class AnalysisWorker(QThread):
             )
             self.prompt_ready.emit(prompt)
 
-            self.progress.emit(60, f"{self.provider} 분석 중... (프레임 {len(frames)}개, API 응답 대기)")
+            # 모델 정보 표시
+            model_info = f" ({self.model})" if self.model != "auto" else ""
+            self.progress.emit(60, f"Gemini{model_info} 분석 중... (프레임 {len(frames)}개)")
+
+            # AI 분석 시작 시그널
+            self.ai_analysis_started.emit()
+
             result = connector.analyze(
                 frame_paths=frames,
                 interval_sec=self.strategy.interval,
@@ -85,9 +95,13 @@ class AnalysisWorker(QThread):
                 working_dir=frames_dir,  # Gemini 세션 격리를 위한 작업 디렉토리
             )
 
+            # AI 분석 완료 시그널
+            self.ai_analysis_finished.emit()
+
             # 5. 완료
             self.progress.emit(100, "분석 완료")
             self.finished.emit(result, self.video_info)
 
         except Exception as e:
+            self.ai_analysis_finished.emit()  # 에러 시에도 타이머 중지
             self.error.emit(str(e))

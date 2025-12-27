@@ -55,7 +55,8 @@ class AppConfig:
     """애플리케이션 설정."""
 
     # AI 설정
-    default_provider: str = "claude"
+    default_provider: str = "gemini"
+    default_model: str = "auto"  # Gemini 모델 선택
     output_language: str = "korean"  # 출력 언어 설정
 
     # 추출 설정
@@ -95,4 +96,15 @@ class AppConfig:
             "japanese": "日本語",
             "chinese": "中文",
             "auto": "자동",
+        }
+
+    @staticmethod
+    def get_model_options() -> dict[str, str]:
+        """사용 가능한 Gemini 모델 목록을 반환합니다."""
+        # Note: gemini-3-*-preview는 CLI 0.21.1+ 및 Preview 설정 필요
+        return {
+            "auto": "자동 (기본값)",
+            "gemini-2.5-pro": "Gemini 2.5 Pro (안정, 권장)",
+            "gemini-2.5-flash": "Gemini 2.5 Flash (빠름)",
+            "gemini-2.0-flash": "Gemini 2.0 Flash (경량)",
         }

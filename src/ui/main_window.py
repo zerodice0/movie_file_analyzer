@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -20,7 +21,9 @@ from PySide6.QtWidgets import (
 
 from .panels import FileSelectionPanel, HistoryPanel, ProgressPanel, ResultPanel, SettingsPanel
 from .worker import AnalysisWorker
+from .download_worker import DownloadWorker
 from ..core.ai_connector import AIConnectorFactory, AnalysisResult
+from ..core.youtube_downloader import YouTubeDownloader
 from ..core.context_optimizer import AIProvider, ContextOptimizer, ExtractionStrategy
 from ..core.frame_extractor import FrameExtractor, VideoInfo
 from ..data.metadata_store import MetadataStore
@@ -41,6 +44,13 @@ class MainWindow(QMainWindow):
         self.current_strategy: Optional[ExtractionStrategy] = None
         self.current_result: Optional[AnalysisResult] = None
         self.worker: Optional[AnalysisWorker] = None
+        self.download_worker: Optional[DownloadWorker] = None
+
+        # 경과 시간 타이머
+        self.ai_start_time: Optional[datetime] = None
+        self.elapsed_timer = QTimer()
+        self.elapsed_timer.setInterval(1000)  # 1초마다
+        self.elapsed_timer.timeout.connect(self._update_elapsed_time)
 
         self.frame_extractor = FrameExtractor()
         self.context_optimizer = ContextOptimizer()
@@ -98,6 +108,7 @@ class MainWindow(QMainWindow):
         # 파일 선택 패널
         self.file_panel.file_dropped.connect(self._load_video)
         self.file_panel.browse_clicked.connect(self._on_browse_clicked)
+        self.file_panel.youtube_download_clicked.connect(self._on_youtube_download_clicked)
 
         # 설정 패널
         self.settings_panel.provider_changed.connect(self._on_provider_changed)
@@ -115,21 +126,19 @@ class MainWindow(QMainWindow):
         self.history_panel.delete_clicked.connect(self._on_delete_history_clicked)
 
     def _update_provider_list(self):
-        """사용 가능한 AI 제공자 목록을 업데이트합니다."""
+        """사용 가능한 AI 제공자 목록을 업데이트합니다 (Gemini 전용)."""
         self.settings_panel.provider_combo.clear()
         available = AIConnectorFactory.get_available_providers()
-        all_providers = AIConnectorFactory.get_all_providers()
 
-        for provider in all_providers:
-            if provider in available:
-                self.settings_panel.provider_combo.addItem(f"{provider.capitalize()} ✓")
-            else:
-                self.settings_panel.provider_combo.addItem(f"{provider.capitalize()} (설치 필요)")
-
-        if not available:
+        if "gemini" in available:
+            self.settings_panel.provider_combo.addItem("Gemini ✓")
+        else:
+            self.settings_panel.provider_combo.addItem("Gemini (설치 필요)")
             QMessageBox.warning(
                 self, "경고",
-                "설치된 AI CLI 도구가 없습니다.\nclaude 또는 gemini CLI를 설치해주세요.",
+                "Gemini CLI가 설치되어 있지 않습니다.\n"
+                "run.sh --install 명령으로 설치하거나\n"
+                "npm install -g @google/gemini-cli 명령을 실행하세요.",
             )
 
     def _update_strategy_list(self):
@@ -138,11 +147,8 @@ class MainWindow(QMainWindow):
         if not self.video_info:
             return
 
-        provider_name = self.settings_panel.get_provider()
-        try:
-            provider = AIProvider(provider_name)
-        except ValueError:
-            provider = AIProvider.CLAUDE
+        # Gemini 전용
+        provider = AIProvider.GEMINI
 
         strategies = self.context_optimizer.get_preset_strategies(
             duration_sec=self.video_info.duration, provider=provider,
@@ -214,11 +220,8 @@ class MainWindow(QMainWindow):
         if not self.video_info or not text:
             return
 
-        provider_name = self.settings_panel.get_provider()
-        try:
-            provider = AIProvider(provider_name)
-        except ValueError:
-            provider = AIProvider.CLAUDE
+        # Gemini 전용
+        provider = AIProvider.GEMINI
 
         strategies = self.context_optimizer.get_preset_strategies(
             duration_sec=self.video_info.duration, provider=provider,
@@ -240,11 +243,8 @@ class MainWindow(QMainWindow):
             return
 
         if not self.current_strategy:
-            provider_name = self.settings_panel.get_provider()
-            try:
-                provider = AIProvider(provider_name)
-            except ValueError:
-                provider = AIProvider.CLAUDE
+            # Gemini 전용
+            provider = AIProvider.GEMINI
 
             self.current_strategy = self.context_optimizer.calculate_strategy(
                 duration_sec=self.video_info.duration, provider=provider,
@@ -263,17 +263,20 @@ class MainWindow(QMainWindow):
         self.progress_panel.reset()
         self.result_panel.clear()
 
-        # 워커 시작
+        # 워커 시작 (모델 선택 포함)
         self.worker = AnalysisWorker(
             video_path=self.video_path,
             provider=provider_name,
             strategy=self.current_strategy,
             custom_prompt=self.settings_panel.get_custom_prompt(),
             output_language=self.settings_panel.get_language(),
+            model=self.settings_panel.get_model(),
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.frames_ready.connect(self._on_frames_ready)
         self.worker.prompt_ready.connect(self._on_prompt_ready)
+        self.worker.ai_analysis_started.connect(self._on_ai_analysis_started)
+        self.worker.ai_analysis_finished.connect(self._on_ai_analysis_finished)
         self.worker.finished.connect(self._on_analysis_finished)
         self.worker.error.connect(self._on_analysis_error)
         self.worker.start()
@@ -289,8 +292,40 @@ class MainWindow(QMainWindow):
     def _on_prompt_ready(self, prompt: str):
         self.result_panel.set_prompt(prompt)
 
+    def _on_ai_analysis_started(self):
+        """AI 분석 시작 시 타이머 시작."""
+        self.ai_start_time = datetime.now()
+        self.elapsed_timer.start()
+
+    def _on_ai_analysis_finished(self):
+        """AI 분석 완료 시 타이머 중지."""
+        self.elapsed_timer.stop()
+        self.ai_start_time = None
+
+    def _update_elapsed_time(self):
+        """AI 분석 중 경과 시간 업데이트."""
+        if self.ai_start_time:
+            elapsed = datetime.now() - self.ai_start_time
+            total_seconds = int(elapsed.total_seconds())
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+
+            if minutes > 0:
+                time_str = f"{minutes}분 {seconds}초"
+            else:
+                time_str = f"{seconds}초"
+
+            model = self.settings_panel.get_model()
+            model_info = f" ({model})" if model != "auto" else ""
+            self.progress_panel.set_progress(
+                60, f"Gemini{model_info} 분석 중... (경과: {time_str})"
+            )
+
     def _on_analysis_finished(self, result: AnalysisResult, video_info: VideoInfo):
         """분석 완료."""
+        self.elapsed_timer.stop()
+        self.ai_start_time = None
+
         self.settings_panel.set_analyze_enabled(True)
         self.file_panel.set_browse_enabled(True)
         self.current_result = result
@@ -310,6 +345,9 @@ class MainWindow(QMainWindow):
             self.result_panel.switch_to_tab(0)
 
     def _on_analysis_error(self, error_message: str):
+        self.elapsed_timer.stop()
+        self.ai_start_time = None
+
         self.settings_panel.set_analyze_enabled(True)
         self.file_panel.set_browse_enabled(True)
         self.progress_panel.set_progress(0, "❌ 오류 발생")
@@ -399,3 +437,74 @@ class MainWindow(QMainWindow):
             self.metadata_store.delete_from_history(record_id)
             self._load_history()
             self.progress_panel.set_progress(100, "🗑️ 히스토리 삭제됨")
+
+    # =========================================================================
+    # YouTube 다운로드 처리
+    # =========================================================================
+
+    def _on_youtube_download_clicked(self, url: str):
+        """YouTube 다운로드 버튼 클릭."""
+        # URL 유효성 검사
+        if not YouTubeDownloader.is_youtube_url(url):
+            QMessageBox.warning(
+                self, "잘못된 URL",
+                "유효한 YouTube URL이 아닙니다.\n"
+                "예: https://youtube.com/watch?v=... 또는 https://youtu.be/...",
+            )
+            return
+
+        # yt-dlp 설치 확인
+        if not YouTubeDownloader.is_available():
+            QMessageBox.warning(
+                self, "yt-dlp 미설치",
+                "yt-dlp가 설치되어 있지 않습니다.\n\n"
+                "설치 방법:\n"
+                "  • run.sh에서 📦 의존성 관리 메뉴 이용\n"
+                "  • pip install --user yt-dlp\n"
+                "  • brew install yt-dlp",
+            )
+            return
+
+        # 이미 다운로드 중인지 확인
+        if self.download_worker and self.download_worker.isRunning():
+            QMessageBox.warning(self, "알림", "다운로드가 이미 진행 중입니다.")
+            return
+
+        # UI 비활성화
+        self.file_panel.set_youtube_enabled(False)
+        self.file_panel.set_browse_enabled(False)
+        self.settings_panel.set_analyze_enabled(False)
+        self.progress_panel.reset()
+        self.progress_panel.set_progress(0, "📥 YouTube 다운로드 준비 중...")
+
+        # 다운로드 시작
+        self.download_worker = DownloadWorker(url)
+        self.download_worker.progress.connect(self._on_download_progress)
+        self.download_worker.finished.connect(self._on_download_finished)
+        self.download_worker.error.connect(self._on_download_error)
+        self.download_worker.start()
+
+    def _on_download_progress(self, percent: float, message: str):
+        """다운로드 진행률 업데이트."""
+        self.progress_panel.set_progress(int(percent * 0.9), message)  # 90%까지
+
+    def _on_download_finished(self, success: bool, file_path: Path, title: str):
+        """다운로드 완료."""
+        self.file_panel.set_youtube_enabled(True)
+        self.file_panel.set_browse_enabled(True)
+
+        if success and file_path and file_path.exists():
+            self.progress_panel.set_progress(95, f"✅ 다운로드 완료: {title}")
+            self.file_panel.clear_youtube_url()
+
+            # 다운로드된 파일 자동 로드
+            self._load_video(file_path)
+        else:
+            self.progress_panel.set_progress(0, "❌ 다운로드 실패")
+
+    def _on_download_error(self, error_message: str):
+        """다운로드 에러."""
+        self.file_panel.set_youtube_enabled(True)
+        self.file_panel.set_browse_enabled(True)
+        self.progress_panel.set_progress(0, "❌ 다운로드 오류")
+        QMessageBox.critical(self, "다운로드 오류", error_message)

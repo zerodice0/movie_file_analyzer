@@ -75,10 +75,6 @@ check_dependencies() {
         missing+=("python3")
     fi
 
-    if ! check_command ffmpeg; then
-        missing+=("ffmpeg")
-    fi
-
     if [ ${#missing[@]} -ne 0 ]; then
         log_error "다음 의존성이 설치되어 있지 않습니다: ${missing[*]}"
         echo ""
@@ -87,21 +83,246 @@ check_dependencies() {
         exit 1
     fi
 
-    # AI CLI 확인
-    local ai_available=()
-    if check_command claude; then
-        ai_available+=("claude")
-    fi
-    if check_command gemini; then
-        ai_available+=("gemini")
+    # 필수/선택 의존성 상태 표시
+    local status_ffmpeg="❌"
+    local status_gemini="❌"
+    local status_ytdlp="❌"
+
+    check_command ffmpeg && status_ffmpeg="✅"
+    check_command gemini && status_gemini="✅"
+    (check_command yt-dlp || check_command yt_dlp) && status_ytdlp="✅"
+
+    # 필수 의존성 확인
+    if ! check_command ffmpeg; then
+        log_warn "ffmpeg가 설치되어 있지 않습니다. (필수)"
+        echo "  설치: brew install ffmpeg 또는 📦 의존성 관리 메뉴 이용"
     fi
 
-    if [ ${#ai_available[@]} -eq 0 ]; then
-        log_warn "AI CLI 도구가 설치되어 있지 않습니다."
-        echo "  분석 기능을 사용하려면 claude 또는 gemini CLI를 설치하세요."
+    # Gemini CLI 확인
+    if ! check_command gemini; then
+        log_warn "gemini CLI가 설치되어 있지 않습니다. (AI 분석에 필수)"
+        echo "  설치: npm install -g @google/gemini-cli 또는 📦 의존성 관리 메뉴 이용"
     else
-        log_success "사용 가능한 AI: ${ai_available[*]}"
+        log_success "Gemini CLI 사용 가능"
     fi
+}
+
+# ============================================================================
+# 의존성 상태 확인
+# ============================================================================
+show_dependency_status() {
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  📦 의존성 상태${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Python
+    if check_command python3; then
+        local py_version
+        py_version=$(python3 --version 2>&1)
+        echo -e "  ✅ ${GREEN}python3${NC} - $py_version"
+    else
+        echo -e "  ❌ ${RED}python3${NC} - 미설치 (필수)"
+    fi
+
+    # FFmpeg
+    if check_command ffmpeg; then
+        local ff_version
+        ff_version=$(ffmpeg -version 2>&1 | head -1 | sed 's/ffmpeg version //' | cut -d' ' -f1)
+        echo -e "  ✅ ${GREEN}ffmpeg${NC} - v$ff_version (프레임 추출용, 필수)"
+    else
+        echo -e "  ❌ ${RED}ffmpeg${NC} - 미설치 (프레임 추출용, 필수)"
+    fi
+
+    # Gemini CLI
+    if check_command gemini; then
+        local gemini_version
+        gemini_version=$(gemini --version 2>&1 || echo "unknown")
+        echo -e "  ✅ ${GREEN}gemini${NC} - v$gemini_version (AI 분석용, 필수)"
+    else
+        echo -e "  ❌ ${RED}gemini${NC} - 미설치 (AI 분석용, 필수)"
+    fi
+
+    # yt-dlp
+    if check_command yt-dlp; then
+        local ytdlp_version
+        ytdlp_version=$(yt-dlp --version 2>&1)
+        echo -e "  ✅ ${GREEN}yt-dlp${NC} - v$ytdlp_version (YouTube 다운로드용, 선택)"
+    elif check_command yt_dlp; then
+        echo -e "  ✅ ${GREEN}yt-dlp${NC} - 설치됨 (YouTube 다운로드용, 선택)"
+    else
+        echo -e "  ⚪ ${YELLOW}yt-dlp${NC} - 미설치 (YouTube 다운로드용, 선택)"
+    fi
+
+    # Node.js (gemini-cli 설치에 필요)
+    if check_command node; then
+        local node_version
+        node_version=$(node --version 2>&1)
+        echo -e "  ✅ ${GREEN}node${NC} - $node_version (gemini-cli 설치에 필요)"
+    else
+        echo -e "  ⚪ ${YELLOW}node${NC} - 미설치 (gemini-cli 설치에 필요)"
+    fi
+
+    # npm
+    if check_command npm; then
+        local npm_version
+        npm_version=$(npm --version 2>&1)
+        echo -e "  ✅ ${GREEN}npm${NC} - v$npm_version"
+    else
+        echo -e "  ⚪ ${YELLOW}npm${NC} - 미설치"
+    fi
+
+    echo ""
+}
+
+# ============================================================================
+# 의존성 설치 함수들
+# ============================================================================
+install_ffmpeg() {
+    echo ""
+    log_info "ffmpeg 설치 중..."
+
+    if check_command brew; then
+        brew install ffmpeg
+        log_success "ffmpeg 설치 완료"
+    else
+        log_error "Homebrew가 설치되어 있지 않습니다."
+        echo "  먼저 Homebrew를 설치하세요: https://brew.sh"
+        echo "  또는 수동으로 ffmpeg를 설치하세요: https://ffmpeg.org/download.html"
+    fi
+    echo ""
+}
+
+install_ytdlp() {
+    echo ""
+    log_info "yt-dlp 설치 중..."
+
+    # pip로 설치 시도
+    if check_command pip3; then
+        pip3 install --user yt-dlp
+        log_success "yt-dlp 설치 완료 (pip)"
+    elif check_command pip; then
+        pip install --user yt-dlp
+        log_success "yt-dlp 설치 완료 (pip)"
+    elif check_command brew; then
+        brew install yt-dlp
+        log_success "yt-dlp 설치 완료 (brew)"
+    else
+        # 직접 다운로드
+        log_info "pip/brew가 없어 직접 다운로드합니다..."
+        mkdir -p "$HOME/bin"
+        curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "$HOME/bin/yt-dlp"
+        chmod +x "$HOME/bin/yt-dlp"
+
+        # PATH에 ~/bin 추가 안내
+        if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
+            log_warn "~/bin이 PATH에 없습니다. 다음을 ~/.zshrc 또는 ~/.bashrc에 추가하세요:"
+            echo "  export PATH=\"\$HOME/bin:\$PATH\""
+        fi
+        log_success "yt-dlp 설치 완료 ($HOME/bin/yt-dlp)"
+    fi
+    echo ""
+}
+
+install_gemini_cli() {
+    echo ""
+    log_info "gemini-cli 설치 중..."
+
+    if ! check_command npm; then
+        log_error "npm이 설치되어 있지 않습니다."
+        echo "  먼저 Node.js를 설치하세요:"
+        echo "    brew install node"
+        echo "  또는: https://nodejs.org/"
+        echo ""
+        return 1
+    fi
+
+    npm install -g @google/gemini-cli
+    log_success "gemini-cli 설치 완료"
+    echo ""
+    log_info "gemini-cli 사용을 위해 Google 계정 인증이 필요합니다."
+    echo "  처음 실행 시 'gemini' 명령어로 인증을 진행하세요."
+    echo ""
+}
+
+install_all_dependencies() {
+    echo ""
+    log_info "누락된 모든 의존성을 설치합니다..."
+    echo ""
+
+    local installed=0
+
+    if ! check_command ffmpeg; then
+        install_ffmpeg
+        ((installed++))
+    fi
+
+    if ! check_command gemini; then
+        install_gemini_cli
+        ((installed++))
+    fi
+
+    if ! check_command yt-dlp && ! check_command yt_dlp; then
+        install_ytdlp
+        ((installed++))
+    fi
+
+    if [ $installed -eq 0 ]; then
+        log_success "모든 의존성이 이미 설치되어 있습니다!"
+    else
+        log_success "$installed개의 도구가 설치되었습니다."
+    fi
+    echo ""
+}
+
+# ============================================================================
+# 의존성 관리 메뉴
+# ============================================================================
+show_dependency_menu() {
+    if ! check_command fzf; then
+        log_warn "fzf가 설치되어 있지 않습니다."
+        show_dependency_status
+        return
+    fi
+
+    while true; do
+        local choice
+        choice=$(printf '%s\n' \
+            "📋 상태 확인" \
+            "🔧 ffmpeg 설치 (프레임 추출)" \
+            "🔧 gemini-cli 설치 (AI 분석)" \
+            "🔧 yt-dlp 설치 (YouTube 다운로드)" \
+            "🔧 모두 설치 (누락된 항목)" \
+            "🔙 돌아가기" \
+            | fzf --height=15 --prompt="의존성 관리 > " --header="설치할 도구를 선택하세요")
+
+        case "$choice" in
+            "📋 상태 확인")
+                show_dependency_status
+                read -p "Enter를 눌러 계속..."
+                ;;
+            "🔧 ffmpeg 설치 (프레임 추출)")
+                install_ffmpeg
+                read -p "Enter를 눌러 계속..."
+                ;;
+            "🔧 gemini-cli 설치 (AI 분석)")
+                install_gemini_cli
+                read -p "Enter를 눌러 계속..."
+                ;;
+            "🔧 yt-dlp 설치 (YouTube 다운로드)")
+                install_ytdlp
+                read -p "Enter를 눌러 계속..."
+                ;;
+            "🔧 모두 설치 (누락된 항목)")
+                install_all_dependencies
+                read -p "Enter를 눌러 계속..."
+                ;;
+            "🔙 돌아가기"|"")
+                return
+                ;;
+        esac
+    done
 }
 
 # ============================================================================
@@ -140,7 +361,7 @@ save_config() {
 # Movie File Analyzer 환경 설정
 # 생성일: $(date)
 
-export MFA_DEFAULT_PROVIDER="${MFA_DEFAULT_PROVIDER:-claude}"
+export MFA_DEFAULT_MODEL="${MFA_DEFAULT_MODEL:-auto}"
 export MFA_AUTO_CLEANUP="${MFA_AUTO_CLEANUP:-true}"
 export MFA_MAX_CACHE_MB="${MFA_MAX_CACHE_MB:-1024}"
 export MFA_DEFAULT_INTERVAL="${MFA_DEFAULT_INTERVAL:-auto}"
@@ -161,25 +382,23 @@ configure_with_fzf() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
-    # 1. AI 제공자 선택
-    echo -e "${YELLOW}1. 기본 AI 제공자 선택:${NC}"
-    local providers=()
-    if check_command claude; then
-        providers+=("claude (Anthropic Claude)")
-    fi
+    # 1. Gemini 모델 선택
+    echo -e "${YELLOW}1. Gemini 모델 선택:${NC}"
     if check_command gemini; then
-        providers+=("gemini (Google Gemini)")
-    fi
-
-    if [ ${#providers[@]} -gt 0 ]; then
-        local selected_provider
-        selected_provider=$(printf '%s\n' "${providers[@]}" | fzf --height=10 --prompt="AI 제공자 > " --header="↑↓로 선택, Enter로 확정")
-        if [ -n "$selected_provider" ]; then
-            MFA_DEFAULT_PROVIDER=$(echo "$selected_provider" | cut -d' ' -f1)
-            log_success "선택됨: $MFA_DEFAULT_PROVIDER"
+        local selected_model
+        selected_model=$(printf '%s\n' \
+            "auto (자동 선택, 권장)" \
+            "gemini-2.5-pro (안정, 권장)" \
+            "gemini-2.5-flash (빠름)" \
+            "gemini-2.0-flash (경량)" \
+            | fzf --height=10 --prompt="모델 > " --header="↑↓로 선택, Enter로 확정")
+        if [ -n "$selected_model" ]; then
+            MFA_DEFAULT_MODEL=$(echo "$selected_model" | cut -d' ' -f1)
+            log_success "선택됨: $MFA_DEFAULT_MODEL"
         fi
     else
-        log_warn "설치된 AI CLI가 없습니다."
+        log_warn "gemini CLI가 설치되어 있지 않습니다."
+        echo "  📦 의존성 관리 메뉴에서 설치할 수 있습니다."
     fi
 
     # 2. 캐시 자동 정리
@@ -220,7 +439,7 @@ configure_with_fzf() {
 show_current_config() {
     echo ""
     echo -e "${CYAN}현재 설정:${NC}"
-    echo -e "  AI 제공자: ${GREEN}${MFA_DEFAULT_PROVIDER:-claude}${NC}"
+    echo -e "  Gemini 모델: ${GREEN}${MFA_DEFAULT_MODEL:-auto}${NC}"
     echo -e "  자동 정리: ${GREEN}${MFA_AUTO_CLEANUP:-true}${NC}"
     echo -e "  캐시 크기: ${GREEN}${MFA_MAX_CACHE_MB:-1024}MB${NC}"
     echo -e "  추출 간격: ${GREEN}${MFA_DEFAULT_INTERVAL:-auto}${NC}"
@@ -237,6 +456,7 @@ show_menu() {
             "🚀 앱 실행" \
             "⚙️  환경 설정" \
             "📊 현재 설정 보기" \
+            "📦 의존성 관리" \
             "🗑️  캐시 정리" \
             "❌ 종료" \
             | fzf --height=15 --prompt="선택 > " --header="Movie File Analyzer 메뉴")
@@ -252,6 +472,10 @@ show_menu() {
             "📊 현재 설정 보기")
                 show_current_config
                 read -p "Enter를 눌러 계속..."
+                show_menu
+                ;;
+            "📦 의존성 관리")
+                show_dependency_menu
                 show_menu
                 ;;
             "🗑️  캐시 정리")
@@ -320,6 +544,12 @@ main() {
         --clean)
             cleanup_cache
             ;;
+        --status)
+            show_dependency_status
+            ;;
+        --install)
+            install_all_dependencies
+            ;;
         --help|-h)
             echo "사용법: $0 [옵션]"
             echo ""
@@ -327,6 +557,8 @@ main() {
             echo "  --config, -c    환경 설정 (fzf 필요)"
             echo "  --run, -r       바로 앱 실행"
             echo "  --clean         캐시 정리"
+            echo "  --status        의존성 상태 확인"
+            echo "  --install       누락된 의존성 설치"
             echo "  --help, -h      도움말"
             echo ""
             echo "옵션 없이 실행하면 메뉴가 표시됩니다 (fzf 필요)"

@@ -28,10 +28,11 @@ from ..data.models import AppConfig
 
 
 class FileSelectionPanel(QWidget):
-    """파일 선택 영역 패널 (드래그 앤 드롭 지원)."""
+    """파일 선택 영역 패널 (드래그 앤 드롭 + YouTube URL 지원)."""
 
     file_dropped = Signal(Path)
     browse_clicked = Signal()
+    youtube_download_clicked = Signal(str)  # YouTube URL
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -63,11 +64,30 @@ class FileSelectionPanel(QWidget):
         file_select_layout.addWidget(self.browse_btn)
         inner_layout.addLayout(file_select_layout)
 
+        # YouTube URL 입력 영역
+        youtube_layout = QHBoxLayout()
+        self.youtube_url_edit = QLineEdit()
+        self.youtube_url_edit.setPlaceholderText("YouTube URL (예: https://youtube.com/watch?v=...)")
+        self.youtube_url_edit.returnPressed.connect(self._on_youtube_download)
+        youtube_layout.addWidget(self.youtube_url_edit)
+
+        self.youtube_download_btn = QPushButton("📥 다운로드")
+        self.youtube_download_btn.clicked.connect(self._on_youtube_download)
+        self.youtube_download_btn.setToolTip("yt-dlp로 YouTube 영상 다운로드")
+        youtube_layout.addWidget(self.youtube_download_btn)
+        inner_layout.addLayout(youtube_layout)
+
         self.video_info_label = QLabel("")
         self.video_info_label.setStyleSheet("color: gray;")
         inner_layout.addWidget(self.video_info_label)
 
         layout.addWidget(self.drop_zone)
+
+    def _on_youtube_download(self):
+        """YouTube 다운로드 버튼 클릭 처리."""
+        url = self.youtube_url_edit.text().strip()
+        if url:
+            self.youtube_download_clicked.emit(url)
 
     def set_video_info(self, path: Path, duration_str: str, width: int, height: int, size_mb: float):
         """영상 정보 표시."""
@@ -95,11 +115,21 @@ class FileSelectionPanel(QWidget):
         """찾아보기 버튼 활성화 상태 설정."""
         self.browse_btn.setEnabled(enabled)
 
+    def set_youtube_enabled(self, enabled: bool):
+        """YouTube 다운로드 UI 활성화 상태 설정."""
+        self.youtube_url_edit.setEnabled(enabled)
+        self.youtube_download_btn.setEnabled(enabled)
+
+    def clear_youtube_url(self):
+        """YouTube URL 입력 초기화."""
+        self.youtube_url_edit.clear()
+
 
 class SettingsPanel(QGroupBox):
-    """AI 제공자, 전략, 언어, 커스텀 프롬프트 설정 패널."""
+    """AI 제공자, 모델, 전략, 언어, 커스텀 프롬프트 설정 패널."""
 
     provider_changed = Signal(str)
+    model_changed = Signal(str)
     strategy_changed = Signal(str)
     analyze_clicked = Signal()
 
@@ -110,13 +140,24 @@ class SettingsPanel(QGroupBox):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
-        # AI 제공자 선택
+        # AI 제공자 선택 (Gemini 고정)
         provider_layout = QHBoxLayout()
         provider_layout.addWidget(QLabel("AI 제공자:"))
         self.provider_combo = QComboBox()
         self.provider_combo.currentTextChanged.connect(self.provider_changed.emit)
         provider_layout.addWidget(self.provider_combo)
         layout.addLayout(provider_layout)
+
+        # AI 모델 선택
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("AI 모델:"))
+        self.model_combo = QComboBox()
+        model_options = AppConfig.get_model_options()
+        for key, display_name in model_options.items():
+            self.model_combo.addItem(display_name, key)
+        self.model_combo.currentTextChanged.connect(self.model_changed.emit)
+        model_layout.addWidget(self.model_combo)
+        layout.addLayout(model_layout)
 
         # 추출 전략 선택
         strategy_layout = QHBoxLayout()
@@ -152,6 +193,10 @@ class SettingsPanel(QGroupBox):
         """선택된 제공자 이름 반환 (소문자)."""
         text = self.provider_combo.currentText()
         return text.split()[0].lower() if text else ""
+
+    def get_model(self) -> str:
+        """선택된 모델 키 반환."""
+        return self.model_combo.currentData() or "auto"
 
     def get_strategy_name(self) -> str:
         """선택된 전략 이름 반환."""
@@ -282,8 +327,8 @@ class ResultPanel(QGroupBox):
         layout.addLayout(btn_layout)
 
     def set_result(self, text: str):
-        """분석 결과 텍스트 설정."""
-        self.result_text.setPlainText(text)
+        """분석 결과 텍스트 설정 (마크다운 렌더링)."""
+        self.result_text.setMarkdown(text)
 
     def set_prompt(self, text: str):
         """프롬프트 텍스트 설정."""
@@ -358,7 +403,7 @@ class HistoryPanel(QGroupBox):
         """히스토리 목록 초기화."""
         self.history_list.clear()
 
-    def add_item(self, text: str, record_id: int):
+    def add_item(self, text: str, record_id: str):
         """히스토리 항목 추가."""
         item = QListWidgetItem()
         item.setText(text)
@@ -369,7 +414,7 @@ class HistoryPanel(QGroupBox):
         """선택된 항목 반환."""
         return self.history_list.currentItem()
 
-    def get_selected_record_id(self) -> Optional[int]:
+    def get_selected_record_id(self) -> Optional[str]:
         """선택된 항목의 record_id 반환."""
         item = self.history_list.currentItem()
         if item:
