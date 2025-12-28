@@ -121,11 +121,64 @@ class VideoHandlerMixin:
         )
         if reply == QMessageBox.Yes:
             count = self.cache_manager.cleanup_all()
-            self._update_cache_info()
+            self._update_storage_info()
             self.progress_panel.set_progress(100, f"🗑️ {count}개 캐시 삭제됨")
 
     def _update_cache_info(self):
-        """캐시 정보 업데이트."""
-        cache_size = self.cache_manager.get_total_size()
-        cache_size_str = self.cache_manager.format_size(cache_size)
+        """캐시 정보 업데이트 (하위 호환성)."""
+        self._update_storage_info()
+
+    def _update_storage_info(self):
+        """저장소 정보 업데이트."""
+        # 다운로드 폴더 정보
+        download_info = self.storage_manager.get_download_info()
+        download_size_str = self.storage_manager.format_size(download_info.total_size)
+
+        # 캐시 폴더 정보
+        cache_info = self.storage_manager.get_cache_info()
+        cache_size_str = self.storage_manager.format_size(cache_info.total_size)
+
+        # 전체 용량
+        total_size = download_info.total_size + cache_info.total_size
+        total_size_str = self.storage_manager.format_size(total_size)
+
+        # UI 업데이트
+        self.result_panel.update_storage_info(
+            download_path=download_info.path,
+            download_size=download_size_str,
+            download_count=download_info.file_count,
+            cache_path=cache_info.path,
+            cache_size=cache_size_str,
+            cache_count=cache_info.file_count,
+            total_size=total_size_str,
+        )
+
+        # 기존 캐시 레이블도 업데이트 (하단 버튼 영역)
         self.result_panel.set_cache_info(cache_size_str)
+
+    def _on_open_download_clicked(self):
+        """다운로드 폴더 열기."""
+        if not self.storage_manager.open_download_folder():
+            QMessageBox.warning(self, "오류", "폴더를 열 수 없습니다.")
+
+    def _on_open_cache_clicked(self):
+        """캐시 폴더 열기."""
+        if not self.storage_manager.open_cache_folder():
+            QMessageBox.warning(self, "오류", "폴더를 열 수 없습니다.")
+
+    def _on_cleanup_download_clicked(self):
+        """다운로드 폴더 정리."""
+        download_info = self.storage_manager.get_download_info()
+        if download_info.file_count == 0:
+            QMessageBox.information(self, "알림", "삭제할 파일이 없습니다.")
+            return
+
+        reply = QMessageBox.question(
+            self, "다운로드 정리",
+            f"다운로드 폴더의 모든 파일({download_info.file_count}개)을 삭제하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            count = self.storage_manager.cleanup_downloads()
+            self._update_storage_info()
+            self.progress_panel.set_progress(100, f"🗑️ {count}개 다운로드 파일 삭제됨")

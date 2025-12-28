@@ -25,6 +25,7 @@ from ..core.context_optimizer import AIProvider, ContextOptimizer, ExtractionStr
 from ..core.frame_extractor import FrameExtractor, VideoInfo
 from ..data.metadata_store import MetadataStore
 from ..utils.cache_manager import CacheManager
+from ..utils.storage_manager import StorageManager
 
 
 class MainWindow(
@@ -68,6 +69,7 @@ class MainWindow(
         self.context_optimizer = ContextOptimizer()
         self.cache_manager = CacheManager()
         self.metadata_store = MetadataStore()
+        self.storage_manager = StorageManager()
 
     def _setup_ui(self):
         """UI 구성."""
@@ -108,7 +110,7 @@ class MainWindow(
 
         # 결과 패널
         self.result_panel = ResultPanel()
-        self._update_cache_info()
+        self._update_storage_info()
         left_layout.addWidget(self.result_panel, 1)
 
         return left_panel
@@ -137,6 +139,10 @@ class MainWindow(
         self.result_panel.copy_clicked.connect(self._on_copy_clicked)
         self.result_panel.save_clicked.connect(self._on_save_clicked)
         self.result_panel.clear_cache_clicked.connect(self._on_clear_cache_clicked)
+        # 저장소 패널
+        self.result_panel.open_download_clicked.connect(self._on_open_download_clicked)
+        self.result_panel.open_cache_clicked.connect(self._on_open_cache_clicked)
+        self.result_panel.cleanup_download_clicked.connect(self._on_cleanup_download_clicked)
 
         # 히스토리 패널
         self.history_panel.item_clicked.connect(self._on_history_item_clicked)
