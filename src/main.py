@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from PySide6.QtWidgets import QApplication
@@ -9,8 +10,20 @@ from PySide6.QtWidgets import QApplication
 from .ui.main_window import MainWindow
 
 
+def setup_logging():
+    """디버깅용 로깅 설정."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
 def main():
     """애플리케이션 메인 함수."""
+    # 로깅 설정
+    setup_logging()
+
     app = QApplication(sys.argv)
 
     # 앱 스타일 설정

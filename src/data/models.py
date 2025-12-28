@@ -101,10 +101,6 @@ class AppConfig:
     @staticmethod
     def get_model_options() -> dict[str, str]:
         """사용 가능한 Gemini 모델 목록을 반환합니다."""
-        # Note: gemini-3-*-preview는 CLI 0.21.1+ 및 Preview 설정 필요
-        return {
-            "auto": "자동 (기본값)",
-            "gemini-2.5-pro": "Gemini 2.5 Pro (안정, 권장)",
-            "gemini-2.5-flash": "Gemini 2.5 Flash (빠름)",
-            "gemini-2.0-flash": "Gemini 2.0 Flash (경량)",
-        }
+        # ai_connector.py의 GEMINI_MODELS를 사용하여 중복 제거
+        from ..core.ai_connector import GEMINI_MODELS
+        return GEMINI_MODELS.copy()

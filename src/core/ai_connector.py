@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -9,11 +10,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+# 디버깅용 로거 설정
+logger = logging.getLogger(__name__)
+
 
 # Gemini 지원 모델 목록 (2025년 12월 기준)
 # Note: gemini-3-*-preview 모델은 CLI 0.21.1+ 및 Preview 설정 활성화 필요
 GEMINI_MODELS = {
     "auto": "자동 (기본값)",
+    "gemini-3-pro-preview": "Gemini 3 Pro (최신, 고성능, Preview)",
+    "gemini-3-flash-preview": "Gemini 3 Flash (최신, 빠름, Preview)",
     "gemini-2.5-pro": "Gemini 2.5 Pro (안정, 권장)",
     "gemini-2.5-flash": "Gemini 2.5 Flash (빠름)",
     "gemini-2.0-flash": "Gemini 2.0 Flash (경량)",
@@ -173,6 +179,13 @@ class AIConnector(ABC):
 
         cmd = self._build_command(prompt, frame_paths)
 
+        # 디버깅: 실행할 명령어 로깅
+        logger.info("=" * 60)
+        logger.info("[AI Connector] 명령어 실행 시작")
+        logger.info(f"  명령어: {' '.join(cmd[:3])}...")  # 앞 3개만 (프롬프트는 너무 길어서 생략)
+        logger.info(f"  프레임 수: {len(frame_paths)}")
+        logger.info(f"  작업 디렉토리: {working_dir}")
+
         try:
             # working_dir이 지정되면 해당 디렉토리에서 실행 (세션 격리)
             result = subprocess.run(
@@ -183,7 +196,15 @@ class AIConnector(ABC):
                 cwd=str(working_dir) if working_dir else None,
             )
 
+            # 디버깅: 실행 결과 로깅
+            logger.info(f"  반환 코드: {result.returncode}")
+            logger.info(f"  stdout 길이: {len(result.stdout) if result.stdout else 0}")
+            logger.info(f"  stderr 길이: {len(result.stderr) if result.stderr else 0}")
+            if result.stderr:
+                logger.warning(f"  stderr 내용: {result.stderr[:500]}")
+
             if result.returncode != 0:
+                logger.error(f"[AI Connector] 명령어 실패 (returncode={result.returncode})")
                 return AnalysisResult(
                     provider=self.get_provider_name(),
                     result="",
@@ -193,9 +214,25 @@ class AIConnector(ABC):
                     error_message=result.stderr or "알 수 없는 오류가 발생했습니다.",
                 )
 
+            # 빈 응답 검증 - AI가 빈 결과를 반환하면 실패로 처리
+            output = result.stdout.strip() if result.stdout else ""
+            if not output:
+                error_detail = result.stderr.strip() if result.stderr else "응답 없음"
+                # stderr가 너무 길면 잘라서 표시
+                error_preview = error_detail[:200] if error_detail else "알 수 없음"
+                logger.error(f"[AI Connector] 빈 응답 반환됨. stderr: {error_detail[:500]}")
+                return AnalysisResult(
+                    provider=self.get_provider_name(),
+                    result="",
+                    prompt_used=prompt,
+                    frame_count=len(frame_paths),
+                    success=False,
+                    error_message=f"AI가 빈 응답을 반환했습니다. 다시 시도해주세요.\n상세: {error_preview}",
+                )
+
             return AnalysisResult(
                 provider=self.get_provider_name(),
-                result=result.stdout,
+                result=output,
                 prompt_used=prompt,
                 frame_count=len(frame_paths),
                 success=True,

@@ -92,7 +92,8 @@ class AnalysisWorker(QThread):
                 duration_str=self.video_info.duration_str,
                 custom_prompt=self.custom_prompt,
                 output_language=self.output_language,
-                working_dir=frames_dir,  # Gemini 세션 격리를 위한 작업 디렉토리
+                # working_dir 제거: Gemini CLI는 작업 디렉토리를 프로젝트로 인식하므로
+                # 이미지만 있는 캐시 디렉토리에서 실행하면 빈 응답 발생
             )
 
             # AI 분석 완료 시그널
