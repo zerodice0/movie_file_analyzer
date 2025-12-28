@@ -9,7 +9,7 @@
                                                                    /____/
 ```
 
-> **영상에서 I-Frame을 추출하고 AI로 내용을 텍스트화하는 GUI 도구**
+> **영상에서 I-Frame을 추출하고 AI로 내용을 텍스트화하는 도구**
 
 ## ✨ 주요 기능
 
@@ -20,6 +20,8 @@
 - 📦 **의존성 관리**: 필요한 도구 자동 설치 지원 (ffmpeg, gemini-cli, yt-dlp)
 - 🗑️ **캐시 관리**: 분석 후 자동 정리, 수동 정리 지원
 - 🎨 **GUI 인터페이스**: PySide6 기반의 직관적인 데스크톱 앱
+- 🧠 **Claude Code 스킬**: Claude Code에서 바로 사용 가능한 스킬 지원
+- 💻 **CLI 지원**: 명령줄에서 직접 분석 실행
 
 ## 📋 요구사항
 
@@ -76,13 +78,37 @@ brew install fzf
 ### 실행 스크립트 옵션
 
 ```bash
-./run.sh              # 메뉴 표시 (fzf 필요)
-./run.sh --run        # 바로 앱 실행
-./run.sh --config     # 환경 설정
-./run.sh --clean      # 캐시 정리
-./run.sh --status     # 의존성 상태 확인
-./run.sh --install    # 누락된 의존성 설치
-./run.sh --help       # 도움말
+./run.sh                  # 메뉴 표시 (fzf 필요)
+./run.sh --run            # 바로 앱 실행 (GUI)
+./run.sh --cli [args]     # CLI 모드로 실행
+./run.sh --config         # 환경 설정
+./run.sh --clean          # 캐시 정리
+./run.sh --status         # 의존성 상태 확인
+./run.sh --install        # 누락된 의존성 설치
+./run.sh --install-skill  # Claude Code 스킬 설치
+./run.sh --skill-status   # Claude Code 스킬 상태 확인
+./run.sh --help           # 도움말
+```
+
+### CLI 사용법
+
+```bash
+# 영상 분석
+./run.sh --cli analyze video.mp4
+./run.sh --cli analyze video.mp4 --interval 5 --model gemini-2.5-flash
+./run.sh --cli analyze "https://youtube.com/watch?v=xxx"
+
+# 히스토리 조회
+./run.sh --cli history
+./run.sh --cli history --limit 10
+./run.sh --cli history --id abc12345
+
+# 캐시 관리
+./run.sh --cli cache status
+./run.sh --cli cache clean
+
+# 상태 확인
+./run.sh --cli status
 ```
 
 ### GUI 사용법
@@ -112,12 +138,36 @@ brew install fzf
 | `gemini-2.5-flash` | Gemini 2.5 Flash (빠름) |
 | `gemini-2.0-flash` | Gemini 2.0 Flash (경량) |
 
+## 🤖 Claude Code 스킬
+
+Claude Code에서 바로 영상 분석 기능을 사용할 수 있습니다.
+
+### 스킬 설치
+
+```bash
+./run.sh --install-skill
+```
+
+설치 후 Claude Code에서 다음과 같이 사용할 수 있습니다:
+- "이 영상 분석해줘: /path/to/video.mp4"
+- "YouTube 영상 분석해줘: https://youtube.com/watch?v=..."
+- "분석 히스토리 보여줘"
+
+### 스킬 상태 확인
+
+```bash
+./run.sh --skill-status
+```
+
+스킬은 `~/.claude/skills/movie-file-analyzer/`에 설치됩니다.
+
 ## 🏗️ 프로젝트 구조
 
 ```
 movie_file_analyzer/
 ├── src/
-│   ├── main.py                    # 엔트리포인트
+│   ├── main.py                    # GUI 엔트리포인트
+│   ├── cli.py                     # CLI 인터페이스
 │   ├── core/
 │   │   ├── frame_extractor.py     # FFmpeg I-Frame 추출
 │   │   ├── context_optimizer.py   # 추출 간격 최적화
@@ -133,6 +183,8 @@ movie_file_analyzer/
 │   │   └── metadata_store.py      # 메타데이터 저장
 │   └── utils/
 │       └── cache_manager.py       # 캐시 관리
+├── claude-code-skill/             # Claude Code 스킬 소스
+│   └── SKILL.md                   # 스킬 정의 파일
 ├── run.sh                         # 실행 스크립트 (의존성 관리 포함)
 ├── pyproject.toml                 # 프로젝트 설정
 └── README.md

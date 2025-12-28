@@ -9,6 +9,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/venv"
 CONFIG_FILE="$HOME/.movie_file_analyzer/env_config"
+SKILL_SOURCE_DIR="$SCRIPT_DIR/claude-code-skill"
+SKILL_TARGET_DIR="$HOME/.claude/skills/movie-file-analyzer"
 
 # 색상 정의
 RED='\033[0;31m'
@@ -277,6 +279,98 @@ install_all_dependencies() {
 }
 
 # ============================================================================
+# Claude Code 스킬 설치
+# ============================================================================
+install_claude_skill() {
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  🤖 Claude Code 스킬 설치${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # 스킬 소스 확인
+    if [ ! -d "$SKILL_SOURCE_DIR" ]; then
+        log_error "스킬 소스 디렉토리를 찾을 수 없습니다: $SKILL_SOURCE_DIR"
+        return 1
+    fi
+
+    # 대상 디렉토리 생성
+    mkdir -p "$HOME/.claude/skills"
+
+    # 기존 스킬 확인
+    if [ -d "$SKILL_TARGET_DIR" ]; then
+        log_warn "기존 스킬이 발견되었습니다."
+        read -p "덮어쓰시겠습니까? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            log_info "스킬 설치를 취소합니다."
+            return 0
+        fi
+        rm -rf "$SKILL_TARGET_DIR"
+    fi
+
+    # 스킬 복사
+    cp -r "$SKILL_SOURCE_DIR" "$SKILL_TARGET_DIR"
+
+    # SKILL.md의 경로를 실제 설치 경로로 업데이트
+    if [ -f "$SKILL_TARGET_DIR/SKILL.md" ]; then
+        # 경로를 현재 스크립트 디렉토리로 업데이트
+        sed -i "s|/home/user/movie_file_analyzer|$SCRIPT_DIR|g" "$SKILL_TARGET_DIR/SKILL.md"
+        sed -i "s|~/path/to/movie_file_analyzer|$SCRIPT_DIR|g" "$SKILL_TARGET_DIR/SKILL.md"
+    fi
+
+    log_success "Claude Code 스킬이 설치되었습니다!"
+    echo ""
+    echo -e "${YELLOW}설치 위치:${NC} $SKILL_TARGET_DIR"
+    echo ""
+    echo -e "${CYAN}사용법:${NC}"
+    echo "  Claude Code에서 영상 분석을 요청하면 자동으로 이 스킬이 활성화됩니다."
+    echo ""
+    echo "  예시:"
+    echo "    - '이 영상 분석해줘: /path/to/video.mp4'"
+    echo "    - 'YouTube 영상 분석해줘: https://youtube.com/watch?v=...'"
+    echo "    - '분석 히스토리 보여줘'"
+    echo ""
+}
+
+uninstall_claude_skill() {
+    echo ""
+    log_info "Claude Code 스킬 제거 중..."
+
+    if [ -d "$SKILL_TARGET_DIR" ]; then
+        rm -rf "$SKILL_TARGET_DIR"
+        log_success "Claude Code 스킬이 제거되었습니다."
+    else
+        log_info "설치된 스킬이 없습니다."
+    fi
+    echo ""
+}
+
+show_skill_status() {
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  🤖 Claude Code 스킬 상태${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    if [ -d "$SKILL_TARGET_DIR" ]; then
+        echo -e "  ✅ ${GREEN}스킬 설치됨${NC}"
+        echo -e "     위치: $SKILL_TARGET_DIR"
+        if [ -f "$SKILL_TARGET_DIR/SKILL.md" ]; then
+            local desc
+            desc=$(grep "^description:" "$SKILL_TARGET_DIR/SKILL.md" 2>/dev/null | head -1 | cut -d':' -f2- | xargs)
+            if [ -n "$desc" ]; then
+                echo -e "     설명: ${desc:0:60}..."
+            fi
+        fi
+    else
+        echo -e "  ❌ ${RED}스킬 미설치${NC}"
+        echo ""
+        echo "  스킬을 설치하려면: ./run.sh --install-skill"
+    fi
+    echo ""
+}
+
+# ============================================================================
 # 의존성 관리 메뉴
 # ============================================================================
 show_dependency_menu() {
@@ -453,7 +547,8 @@ show_menu() {
     if check_command fzf; then
         local choice
         choice=$(printf '%s\n' \
-            "🚀 앱 실행" \
+            "🚀 앱 실행 (GUI)" \
+            "🤖 Claude Code 스킬 설치" \
             "⚙️  환경 설정" \
             "📊 현재 설정 보기" \
             "📦 의존성 관리" \
@@ -462,8 +557,13 @@ show_menu() {
             | fzf --height=15 --prompt="선택 > " --header="Movie File Analyzer 메뉴")
 
         case "$choice" in
-            "🚀 앱 실행")
+            "🚀 앱 실행 (GUI)")
                 run_app
+                ;;
+            "🤖 Claude Code 스킬 설치")
+                install_claude_skill
+                read -p "Enter를 눌러 계속..."
+                show_menu
                 ;;
             "⚙️  환경 설정")
                 configure_with_fzf
@@ -541,6 +641,12 @@ main() {
         --run|-r)
             run_app
             ;;
+        --cli)
+            # CLI 모드로 실행
+            shift
+            cd "$SCRIPT_DIR"
+            python -m src.cli "$@"
+            ;;
         --clean)
             cleanup_cache
             ;;
@@ -550,16 +656,34 @@ main() {
         --install)
             install_all_dependencies
             ;;
+        --install-skill)
+            install_claude_skill
+            ;;
+        --uninstall-skill)
+            uninstall_claude_skill
+            ;;
+        --skill-status)
+            show_skill_status
+            ;;
         --help|-h)
             echo "사용법: $0 [옵션]"
             echo ""
             echo "옵션:"
-            echo "  --config, -c    환경 설정 (fzf 필요)"
-            echo "  --run, -r       바로 앱 실행"
-            echo "  --clean         캐시 정리"
-            echo "  --status        의존성 상태 확인"
-            echo "  --install       누락된 의존성 설치"
-            echo "  --help, -h      도움말"
+            echo "  --config, -c       환경 설정 (fzf 필요)"
+            echo "  --run, -r          바로 앱 실행 (GUI)"
+            echo "  --cli [args]       CLI 모드로 실행 (인자 전달)"
+            echo "  --clean            캐시 정리"
+            echo "  --status           의존성 상태 확인"
+            echo "  --install          누락된 의존성 설치"
+            echo "  --install-skill    Claude Code 스킬 설치"
+            echo "  --uninstall-skill  Claude Code 스킬 제거"
+            echo "  --skill-status     Claude Code 스킬 상태 확인"
+            echo "  --help, -h         도움말"
+            echo ""
+            echo "CLI 사용 예시:"
+            echo "  $0 --cli analyze video.mp4"
+            echo "  $0 --cli history"
+            echo "  $0 --cli cache status"
             echo ""
             echo "옵션 없이 실행하면 메뉴가 표시됩니다 (fzf 필요)"
             ;;
