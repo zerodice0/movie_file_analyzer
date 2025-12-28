@@ -5,6 +5,7 @@ from .settings_panel import SettingsPanel
 from .progress_panel import ProgressPanel
 from .result_panel import ResultPanel
 from .history_panel import HistoryPanel
+from .storage_panel import StoragePanel
 
 __all__ = [
     "FileSelectionPanel",
@@ -12,4 +13,5 @@ __all__ = [
     "ProgressPanel",
     "ResultPanel",
     "HistoryPanel",
+    "StoragePanel",
 ]

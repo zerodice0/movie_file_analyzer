@@ -16,14 +16,19 @@ from PySide6.QtWidgets import (
 )
 
 from ..widgets import FrameGallery
+from .storage_panel import StoragePanel
 
 
 class ResultPanel(QGroupBox):
-    """분석 결과, 프레임, 프롬프트 탭과 저장 옵션 패널."""
+    """분석 결과, 프레임, 프롬프트, 저장소 탭과 저장 옵션 패널."""
 
     copy_clicked = Signal()
     save_clicked = Signal()
     clear_cache_clicked = Signal()
+    # 저장소 패널 시그널
+    open_download_clicked = Signal()
+    open_cache_clicked = Signal()
+    cleanup_download_clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__("분석 결과", parent)
@@ -62,6 +67,14 @@ class ResultPanel(QGroupBox):
         self.prompt_text.setReadOnly(True)
         prompt_tab_layout.addWidget(self.prompt_text)
         self.result_tabs.addTab(prompt_tab, "💬 프롬프트")
+
+        # 탭 4: 저장소 정보
+        self.storage_panel = StoragePanel()
+        self.storage_panel.open_download_clicked.connect(self.open_download_clicked.emit)
+        self.storage_panel.open_cache_clicked.connect(self.open_cache_clicked.emit)
+        self.storage_panel.cleanup_download_clicked.connect(self.cleanup_download_clicked.emit)
+        self.storage_panel.cleanup_cache_clicked.connect(self.clear_cache_clicked.emit)
+        self.result_tabs.addTab(self.storage_panel, "💾 저장소")
 
         layout.addWidget(self.result_tabs)
 
@@ -144,3 +157,18 @@ class ResultPanel(QGroupBox):
         self.result_text.clear()
         self.prompt_text.clear()
         self.frame_gallery.clear()
+
+    def update_storage_info(
+        self,
+        download_path: Path,
+        download_size: str,
+        download_count: int,
+        cache_path: Path,
+        cache_size: str,
+        cache_count: int,
+        total_size: str,
+    ):
+        """저장소 정보 업데이트."""
+        self.storage_panel.update_download_info(download_path, download_size, download_count)
+        self.storage_panel.update_cache_info(cache_path, cache_size, cache_count)
+        self.storage_panel.update_total(total_size)
