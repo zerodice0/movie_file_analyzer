@@ -24,6 +24,7 @@ class ResultPanel(QGroupBox):
 
     copy_clicked = Signal()
     save_clicked = Signal()
+    export_clicked = Signal()
     clear_cache_clicked = Signal()
     # 저장소 패널 시그널
     open_download_clicked = Signal()
@@ -95,6 +96,12 @@ class ResultPanel(QGroupBox):
         self.save_btn.clicked.connect(self.save_clicked.emit)
         btn_layout.addWidget(self.save_btn)
 
+        self.export_btn = QPushButton("📦 내보내기")
+        self.export_btn.setEnabled(False)
+        self.export_btn.setToolTip("다운로드 영상과 분석 결과를 외부 폴더로 복사")
+        self.export_btn.clicked.connect(self.export_clicked.emit)
+        btn_layout.addWidget(self.export_btn)
+
         # 저장 옵션
         self.save_sidecar_check = QCheckBox("사이드카")
         self.save_sidecar_check.setChecked(True)
@@ -139,10 +146,11 @@ class ResultPanel(QGroupBox):
             "video_meta": self.save_video_meta_check.isChecked(),
         }
 
-    def set_buttons_enabled(self, copy: bool = False, save: bool = False):
-        """복사/저장 버튼 활성화 상태 설정."""
+    def set_buttons_enabled(self, copy: bool = False, save: bool = False, export: bool = False):
+        """복사/저장/내보내기 버튼 활성화 상태 설정."""
         self.copy_btn.setEnabled(copy)
         self.save_btn.setEnabled(save)
+        self.export_btn.setEnabled(export)
 
     def set_cache_info(self, size_str: str):
         """캐시 정보 레이블 업데이트."""

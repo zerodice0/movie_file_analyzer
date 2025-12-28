@@ -67,6 +67,7 @@ class YouTubeHandlerMixin:
         if success and file_path and file_path.exists():
             self.progress_panel.set_progress(95, f"✅ 다운로드 완료: {title}")
             self.file_panel.clear_youtube_url()
+            self._update_storage_info()  # 저장소 정보 업데이트
             self._load_video(file_path)
         else:
             self.progress_panel.set_progress(0, "❌ 다운로드 실패")

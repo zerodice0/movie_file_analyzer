@@ -35,6 +35,10 @@ class VideoHandlerMixin:
             self._update_strategy_list()
             self.settings_panel.set_analyze_enabled(True)
 
+            # 새 영상 로드 시 이전 결과 초기화
+            self.result_panel.clear()
+            self.result_panel.set_buttons_enabled(copy=False, save=False, export=False)
+
             # 기존 분석 결과 확인
             if self.metadata_store.has_sidecar(video_path):
                 existing = self.metadata_store.load_sidecar(video_path)
@@ -48,7 +52,9 @@ class VideoHandlerMixin:
                     )
                     if reply == QMessageBox.Yes:
                         self.result_panel.set_result(existing.analysis_result)
-                        self.result_panel.set_buttons_enabled(copy=True)
+                        # 다운로드 영상인 경우 내보내기 버튼도 활성화
+                        is_downloaded = self._is_downloaded_video()
+                        self.result_panel.set_buttons_enabled(copy=True, export=is_downloaded)
 
         except Exception as e:
             QMessageBox.critical(self, "오류", f"영상을 로드할 수 없습니다:\n{e}")
@@ -83,6 +89,8 @@ class VideoHandlerMixin:
         record_id = item.data(Qt.UserRole)
         record = self.metadata_store.get_from_history(record_id)
         if record:
+            # 이전 결과 초기화 후 새 결과 표시
+            self.result_panel.clear()
             self.result_panel.set_result(record.analysis_result)
             self.result_panel.set_buttons_enabled(copy=True)
             self.progress_panel.set_progress(

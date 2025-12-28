@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -62,8 +63,10 @@ class AIConnector(ABC):
 - **화면 텍스트**: 영상에 표시된 주요 텍스트 (있는 경우)
 - **분위기**: 영상의 전반적인 톤과 느낌
 
-**주의**: "Frame 1", "Frame 2" 등 개별 프레임 번호를 언급하지 마세요.
-영상 전체의 서사적 흐름에 집중해주세요.
+**주의**:
+- "Frame 1", "Frame 2" 등 개별 프레임 번호를 언급하지 마세요.
+- 영상 전체의 서사적 흐름에 집중해주세요.
+- 중간 사고 과정이나 작업 계획을 출력하지 마세요. "## 영상 요약"부터 바로 시작하세요.
 
 {language_instruction}"""
 
@@ -177,47 +180,71 @@ class AIConnector(ABC):
             output_language=output_language,
         )
 
-        cmd = self._build_command(prompt, frame_paths)
+        cmd, full_prompt = self._build_command(prompt, frame_paths)
 
         # 디버깅: 실행할 명령어 로깅
         logger.info("=" * 60)
         logger.info("[AI Connector] 명령어 실행 시작")
-        logger.info(f"  명령어: {' '.join(cmd[:3])}...")  # 앞 3개만 (프롬프트는 너무 길어서 생략)
+        logger.info(f"  명령어: {' '.join(cmd)}...")  # 전체 명령어 (프롬프트 제외)
+        logger.info(f"  gemini 경로: {cmd[0]}")
         logger.info(f"  프레임 수: {len(frame_paths)}")
         logger.info(f"  작업 디렉토리: {working_dir}")
 
         try:
-            # working_dir이 지정되면 해당 디렉토리에서 실행 (세션 격리)
-            result = subprocess.run(
+            # 환경 변수 설정 (GUI 앱에서 PATH 문제 방지)
+            import os
+            env = os.environ.copy()
+
+            logger.info(f"  프롬프트 길이: {len(full_prompt)} 문자")
+
+            # Gemini CLI는 stdin에서 프롬프트를 읽음
+            # subprocess.Popen + communicate()로 stdin 전달
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 cwd=str(working_dir) if working_dir else None,
+                env=env,
             )
 
-            # 디버깅: 실행 결과 로깅
-            logger.info(f"  반환 코드: {result.returncode}")
-            logger.info(f"  stdout 길이: {len(result.stdout) if result.stdout else 0}")
-            logger.info(f"  stderr 길이: {len(result.stderr) if result.stderr else 0}")
-            if result.stderr:
-                logger.warning(f"  stderr 내용: {result.stderr[:500]}")
+            try:
+                stdout_bytes, stderr_bytes = process.communicate(
+                    input=full_prompt.encode('utf-8'),
+                    timeout=timeout,
+                )
+                returncode = process.returncode
+                stdout = stdout_bytes.decode('utf-8', errors='replace')
+                stderr = stderr_bytes.decode('utf-8', errors='replace')
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                raise
 
-            if result.returncode != 0:
-                logger.error(f"[AI Connector] 명령어 실패 (returncode={result.returncode})")
+            # 디버깅: 실행 결과 로깅
+            logger.info(f"  반환 코드: {returncode}")
+            logger.info(f"  stdout 길이: {len(stdout) if stdout else 0}")
+            logger.info(f"  stderr 길이: {len(stderr) if stderr else 0}")
+            if stdout:
+                logger.info(f"  stdout 미리보기: {stdout[:500]}...")
+            if stderr:
+                logger.warning(f"  stderr 내용: {stderr[:500]}")
+
+            if returncode != 0:
+                logger.error(f"[AI Connector] 명령어 실패 (returncode={returncode})")
                 return AnalysisResult(
                     provider=self.get_provider_name(),
                     result="",
                     prompt_used=prompt,
                     frame_count=len(frame_paths),
                     success=False,
-                    error_message=result.stderr or "알 수 없는 오류가 발생했습니다.",
+                    error_message=stderr or "알 수 없는 오류가 발생했습니다.",
                 )
 
             # 빈 응답 검증 - AI가 빈 결과를 반환하면 실패로 처리
-            output = result.stdout.strip() if result.stdout else ""
+            output = stdout.strip() if stdout else ""
             if not output:
-                error_detail = result.stderr.strip() if result.stderr else "응답 없음"
+                error_detail = stderr.strip() if stderr else "응답 없음"
                 # stderr가 너무 길면 잘라서 표시
                 error_preview = error_detail[:200] if error_detail else "알 수 없음"
                 logger.error(f"[AI Connector] 빈 응답 반환됨. stderr: {error_detail[:500]}")
@@ -296,19 +323,29 @@ class GeminiConnector(AIConnector):
             )
 
             if list_result.returncode == 0 and "Available sessions" in list_result.stdout:
-                # 세션이 있으면 모두 삭제 (1부터 순차적으로)
-                for i in range(1, 20):  # 최대 20개 세션까지 삭제 시도
+                # 세션 수 파싱: "Available sessions for this project (27):"
+                match = re.search(r"Available sessions.*\((\d+)\)", list_result.stdout)
+                session_count = int(match.group(1)) if match else 50  # 기본값 50
+
+                logger.info(f"[Gemini] {session_count}개 세션 삭제 시도 (working_dir: {working_dir})")
+
+                # 세션 수만큼 세션 1을 반복 삭제 (삭제 후 번호 재조정됨)
+                deleted = 0
+                for _ in range(session_count):
                     delete_result = subprocess.run(
-                        ["gemini", "--delete-session", str(i)],
+                        ["gemini", "--delete-session", "1"],
                         capture_output=True,
                         text=True,
                         timeout=10,
                         cwd=str(working_dir) if working_dir else None,
                     )
                     if delete_result.returncode != 0:
-                        break  # 더 이상 세션이 없으면 중단
-        except Exception:
-            pass  # 세션 삭제 실패해도 분석 계속 진행
+                        break
+                    deleted += 1
+
+                logger.info(f"[Gemini] {deleted}개 세션 삭제 완료")
+        except Exception as e:
+            logger.warning(f"[Gemini] 세션 삭제 중 오류: {e}")
 
     def analyze(
         self,
@@ -348,28 +385,38 @@ class GeminiConnector(AIConnector):
         """
         Gemini CLI 명령어를 구성합니다.
 
-        형식: gemini [--model MODEL] "프롬프트 @file1.jpg @file2.jpg ..." -y
+        형식: gemini --sandbox [--model MODEL] "프롬프트 @file1.jpg @file2.jpg ..." -y
 
         Note:
             Gemini CLI는 @ 접두사로 파일을 참조합니다.
             명령줄 길이 제한으로 인해 많은 파일은 처리가 어려울 수 있습니다.
+            --sandbox 옵션으로 MCP 서버 연결을 비활성화하여 subprocess 환경에서 안정적으로 실행합니다.
         """
-        # @ 접두사로 파일 참조
-        file_refs = " ".join([f"@{p}" for p in frame_paths])
-        full_prompt = f"{prompt}\n\n파일들: {file_refs}"
+        # 디렉토리 참조 방식 사용 - Gemini가 도구로 파일 스캔 (파일 개수 제한 없음)
+        # 개별 파일 참조(@file1.jpg @file2.jpg ...)는 14개 이상에서 조용히 실패함
+        frames_dir = frame_paths[0].parent.name  # "frames"
+        full_prompt = f"{prompt}\n\n프레임 디렉토리: @{frames_dir} (총 {len(frame_paths)}개 프레임)"
 
-        cmd = ["gemini"]
+        # gemini CLI 절대 경로 사용 (GUI 앱에서 PATH 문제 방지)
+        gemini_path = shutil.which(self.get_command_name()) or self.get_command_name()
+
+        # --output-format text: 순수 텍스트(마크다운) 출력 (UI에서 마크다운 렌더링)
+        # --allowed-mcp-server-names=: MCP 서버 연결 완전 비활성화 (GUI 앱에서 stdout 간섭 방지)
+        # Note: 프롬프트는 stdin으로 전달되므로 명령줄에 포함하지 않음
+        cmd = [gemini_path, "--output-format", "text", "--allowed-mcp-server-names="]
 
         # 모델 지정 (auto가 아닌 경우)
         if self.model and self.model != "auto":
             cmd.extend(["--model", self.model])
 
-        cmd.append(full_prompt)
+        # 프롬프트는 stdin으로 전달 (명령줄에서 제거)
+        # cmd.append(full_prompt)  # 제거됨
 
         if self.auto_approve:
             cmd.append("-y")
 
-        return cmd
+        # (cmd, full_prompt) 튜플 반환 - 프롬프트는 stdin으로 전달
+        return cmd, full_prompt
 
     @staticmethod
     def get_available_models() -> dict[str, str]:

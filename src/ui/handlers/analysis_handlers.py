@@ -1,8 +1,10 @@
 """분석 관련 핸들러."""
 
+import shutil
 from datetime import datetime
+from pathlib import Path
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from ...core.ai_connector import AIConnectorFactory, AnalysisResult
 from ...core.context_optimizer import AIProvider
@@ -136,7 +138,9 @@ class AnalysisHandlerMixin:
 
         if result.success:
             self.result_panel.set_result(result.result)
-            self.result_panel.set_buttons_enabled(copy=True, save=True)
+            # 다운로드 영상인 경우 내보내기 버튼도 활성화
+            is_downloaded = self._is_downloaded_video()
+            self.result_panel.set_buttons_enabled(copy=True, save=True, export=is_downloaded)
             self.result_panel.switch_to_tab(0)
 
             self._auto_save_to_history()
@@ -196,6 +200,9 @@ class AnalysisHandlerMixin:
             else:
                 self.progress_panel.set_progress(100, messages[0])
 
+            # 사이드카 저장 후 저장소 정보 업데이트
+            self._update_storage_info()
+
         except Exception as e:
             self.progress_panel.set_progress(
                 100, f"✅ 분석 완료 (저장 실패: {e})"
@@ -248,3 +255,74 @@ class AnalysisHandlerMixin:
 
         self.progress_panel.set_progress(100, " | ".join(messages) if messages else "저장 완료")
         self._load_history()
+        self._update_storage_info()
+
+    def _on_export_clicked(self):
+        """내보내기 버튼 클릭."""
+        if not self.video_path:
+            return
+
+        # 다운로드 영상인지 확인
+        if not self._is_downloaded_video():
+            QMessageBox.information(
+                self,
+                "알림",
+                "내보내기 기능은 다운로드한 영상에서만 사용할 수 있습니다.",
+            )
+            return
+
+        # 사이드카 존재 여부 확인
+        has_sidecar = self.metadata_store.has_sidecar(self.video_path)
+
+        # 다이얼로그 표시
+        from ..dialogs.export_dialog import ExportDialog
+
+        dialog = ExportDialog(self.video_path, has_sidecar, self)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        options = dialog.get_options()
+        self._export_files(options)
+
+    def _is_downloaded_video(self) -> bool:
+        """현재 영상이 다운로드 폴더의 영상인지 확인."""
+        if not self.video_path:
+            return False
+
+        download_dir = self.storage_manager.download_dir
+        try:
+            self.video_path.relative_to(download_dir)
+            return True
+        except ValueError:
+            return False
+
+    def _export_files(self, options: dict):
+        """파일 내보내기 수행."""
+        export_path: Path = options["path"]
+        exported = []
+
+        try:
+            # 영상 파일 복사
+            if options["video"]:
+                dest = export_path / self.video_path.name
+                shutil.copy2(self.video_path, dest)
+                exported.append("영상")
+
+            # 사이드카 파일 복사
+            if options["sidecar"]:
+                sidecar_path = Path(str(self.video_path) + ".analysis.json")
+                if sidecar_path.exists():
+                    dest = export_path / sidecar_path.name
+                    shutil.copy2(sidecar_path, dest)
+                    exported.append("사이드카")
+
+            if exported:
+                self.progress_panel.set_progress(
+                    100, f"📦 내보내기 완료: {', '.join(exported)}"
+                )
+            else:
+                self.progress_panel.set_progress(100, "내보내기할 파일이 없습니다")
+
+        except Exception as e:
+            QMessageBox.critical(self, "내보내기 오류", str(e))

@@ -138,6 +138,7 @@ class MainWindow(
         # 결과 패널
         self.result_panel.copy_clicked.connect(self._on_copy_clicked)
         self.result_panel.save_clicked.connect(self._on_save_clicked)
+        self.result_panel.export_clicked.connect(self._on_export_clicked)
         self.result_panel.clear_cache_clicked.connect(self._on_clear_cache_clicked)
         # 저장소 패널
         self.result_panel.open_download_clicked.connect(self._on_open_download_clicked)
