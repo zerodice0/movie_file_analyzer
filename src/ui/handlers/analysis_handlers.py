@@ -150,7 +150,7 @@ class AnalysisHandlerMixin:
             self.result_panel.switch_to_tab(0)
 
     def _auto_save_to_history(self):
-        """분석 결과를 자동으로 히스토리에 저장합니다."""
+        """분석 결과를 자동으로 저장합니다 (히스토리 + 체크된 옵션)."""
         if not self.current_result or not self.video_path or not self.video_info:
             return
 
@@ -169,13 +169,36 @@ class AnalysisHandlerMixin:
                 analysis_result=self.current_result.result,
             )
 
-            self.metadata_store.save_to_history(record)
+            # 저장 옵션 가져오기 (체크박스 상태)
+            save_options = self.result_panel.get_save_options()
+
+            # 통합 저장 (히스토리 + 체크된 옵션)
+            results = self.metadata_store.save(
+                record=record,
+                save_sidecar=save_options["sidecar"],
+                save_to_history=True,
+                write_to_video=save_options["video_meta"],
+            )
+
             self._load_history()
-            self.progress_panel.set_progress(100, "✅ 분석 완료 (히스토리 자동 저장됨)")
+
+            # 저장 결과 메시지 생성
+            messages = ["✅ 분석 완료"]
+            if results.get("history") == "저장됨":
+                messages.append("히스토리")
+            if results.get("sidecar") and not str(results["sidecar"]).startswith("오류"):
+                messages.append("사이드카")
+            if results.get("video_metadata") and not str(results["video_metadata"]).startswith("오류"):
+                messages.append("영상메타")
+
+            if len(messages) > 1:
+                self.progress_panel.set_progress(100, f"{messages[0]} ({', '.join(messages[1:])} 저장됨)")
+            else:
+                self.progress_panel.set_progress(100, messages[0])
 
         except Exception as e:
             self.progress_panel.set_progress(
-                100, f"✅ 분석 완료 (히스토리 저장 실패: {e})"
+                100, f"✅ 분석 완료 (저장 실패: {e})"
             )
 
     def _on_analysis_error(self, error_message: str):

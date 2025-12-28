@@ -53,8 +53,8 @@ def _add_analyze_parser(subparsers):
     analyze_parser.add_argument("--interval", "-i", type=float, help="추출 간격 (초)")
     analyze_parser.add_argument(
         "--model", "-m", default="auto",
-        choices=["auto", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
-        help="Gemini 모델 (기본: auto)",
+        choices=["auto", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+        help="Gemini 모델 (기본: auto, gemini-3-*-preview는 Preview 설정 필요)",
     )
     analyze_parser.add_argument(
         "--language", "-l", default="korean",

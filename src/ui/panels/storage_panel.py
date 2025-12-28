@@ -23,12 +23,12 @@ class StorageSection(QFrame):
     def __init__(self, title: str, icon: str, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.StyledPanel)
+        # 다크/라이트 모드 모두 지원하도록 시스템 팔레트 사용
         self.setStyleSheet("""
             StorageSection {
-                border: 1px solid #ddd;
+                border: 1px solid palette(mid);
                 border-radius: 6px;
                 padding: 8px;
-                background-color: #fafafa;
             }
         """)
         self._setup_ui(title, icon)
@@ -40,7 +40,7 @@ class StorageSection(QFrame):
         # 헤더: 아이콘 + 제목
         header_layout = QHBoxLayout()
         header_label = QLabel(f"{icon} {title}")
-        header_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        header_label.setStyleSheet("font-weight: bold; font-size: 14px;")  # 기본 텍스트 색상 사용
         header_layout.addWidget(header_label)
         header_layout.addStretch()
         layout.addLayout(header_layout)
@@ -49,7 +49,7 @@ class StorageSection(QFrame):
         path_layout = QHBoxLayout()
         path_layout.addWidget(QLabel("경로:"))
         self.path_label = QLabel("-")
-        self.path_label.setStyleSheet("color: #666;")
+        self.path_label.setStyleSheet("color: palette(dark);")  # 다크/라이트 모드 호환
         self.path_label.setWordWrap(True)
         path_layout.addWidget(self.path_label, 1)
         layout.addLayout(path_layout)
@@ -118,7 +118,7 @@ class StoragePanel(QWidget):
             "YouTube에서 다운로드한 영상과 분석용 프레임 캐시의 저장 위치 및 용량입니다."
         )
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #666; margin-bottom: 8px;")
+        desc_label.setStyleSheet("color: palette(dark); margin-bottom: 8px;")  # 다크/라이트 모드 호환
         layout.addWidget(desc_label)
 
         # 다운로드 섹션
@@ -135,18 +135,18 @@ class StoragePanel(QWidget):
 
         # 전체 요약
         summary_frame = QFrame()
+        # 다크/라이트 모드 모두 지원
         summary_frame.setStyleSheet("""
             QFrame {
-                border: 1px solid #e0e0e0;
+                border: 1px solid palette(mid);
                 border-radius: 4px;
                 padding: 8px;
-                background-color: #f5f5f5;
             }
         """)
         summary_layout = QHBoxLayout(summary_frame)
         summary_layout.addWidget(QLabel("전체 사용량:"))
         self.total_label = QLabel("0 B")
-        self.total_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #333;")
+        self.total_label.setStyleSheet("font-weight: bold; font-size: 14px;")  # 기본 텍스트 색상 사용
         summary_layout.addWidget(self.total_label)
         summary_layout.addStretch()
         layout.addWidget(summary_frame)
