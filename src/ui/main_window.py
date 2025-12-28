@@ -163,11 +163,28 @@ class MainWindow(QMainWindow):
     def _load_history(self):
         """히스토리를 로드합니다."""
         self.history_panel.clear()
-        records = self.metadata_store.list_history(limit=50)
-        for record in records:
-            date_str = record.created_at[:10] if record.created_at else "unknown"
-            text = f"📹 {record.video_name}\n   {date_str} | {record.ai_provider} | {record.frame_count}장"
-            self.history_panel.add_item(text, record.id)
+
+        try:
+            records = self.metadata_store.list_history(limit=50)
+
+            if not records:
+                # 히스토리가 비어있는 경우
+                self.history_panel.show_empty()
+                return
+
+            for record in records:
+                date_str = record.created_at[:10] if record.created_at else "unknown"
+                text = f"📹 {record.video_name}\n   {date_str} | {record.ai_provider} | {record.frame_count}장"
+                self.history_panel.add_item(text, record.id)
+
+            self.history_panel.show_list()
+
+        except PermissionError as e:
+            self.history_panel.show_error(f"파일 접근 권한이 없습니다: {e}")
+        except (OSError, IOError) as e:
+            self.history_panel.show_error(f"파일 시스템 오류: {e}")
+        except Exception as e:
+            self.history_panel.show_error(f"알 수 없는 오류: {e}")
 
     def _on_browse_clicked(self):
         """파일 선택 버튼 클릭."""
@@ -333,8 +350,10 @@ class MainWindow(QMainWindow):
         if result.success:
             self.result_panel.set_result(result.result)
             self.result_panel.set_buttons_enabled(copy=True, save=True)
-            self.progress_panel.set_progress(100, "✅ 분석 완료 - 저장 버튼을 눌러 저장하세요")
             self.result_panel.switch_to_tab(0)
+
+            # 분석 완료 시 자동으로 히스토리에 저장
+            self._auto_save_to_history()
 
             if self.cache_manager.auto_cleanup and self.video_path:
                 self.cache_manager.cleanup_video_cache(self.video_path)
@@ -343,6 +362,36 @@ class MainWindow(QMainWindow):
             self.result_panel.set_result(f"오류: {result.error_message}")
             self.progress_panel.set_progress(100, "❌ 분석 실패")
             self.result_panel.switch_to_tab(0)
+
+    def _auto_save_to_history(self):
+        """분석 결과를 자동으로 히스토리에 저장합니다."""
+        if not self.current_result or not self.video_path or not self.video_info:
+            return
+
+        try:
+            record = AnalysisRecord(
+                video_path=str(self.video_path),
+                video_name=self.video_path.name,
+                video_duration=self.video_info.duration,
+                video_resolution=self.video_info.resolution,
+                video_size_mb=self.video_info.size_mb,
+                extraction_mode=self.current_strategy.mode if self.current_strategy else "unknown",
+                extraction_interval=self.current_strategy.interval if self.current_strategy else None,
+                frame_count=self.current_result.frame_count,
+                ai_provider=self.current_result.provider,
+                prompt_used=self.current_result.prompt_used,
+                analysis_result=self.current_result.result,
+            )
+
+            self.metadata_store.save_to_history(record)
+            self._load_history()
+            self.progress_panel.set_progress(100, "✅ 분석 완료 (히스토리 자동 저장됨)")
+
+        except Exception as e:
+            # 자동 저장 실패 시 사용자에게 알림 (분석 결과는 유지)
+            self.progress_panel.set_progress(
+                100, f"✅ 분석 완료 (히스토리 저장 실패: {e})"
+            )
 
     def _on_analysis_error(self, error_message: str):
         self.elapsed_timer.stop()
